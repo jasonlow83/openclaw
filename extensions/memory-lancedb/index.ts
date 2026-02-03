@@ -173,7 +173,7 @@ class MiniMaxEmbeddings implements EmbeddingProvider {
   private apiKey: string;
   private groupId: string;
   private model: string;
-  private baseUrl = "https://api.minimax.chat/v1/text/embeddings";
+  private baseUrl = "https://api.minimax.chat/v1/embeddings";
 
   constructor(
     apiKey: string,
@@ -190,17 +190,19 @@ class MiniMaxEmbeddings implements EmbeddingProvider {
       "Content-Type": "application/json",
       Authorization: `Bearer ${this.apiKey}`,
     };
-    
-    // Only add X-GroupId if it's provided
+
+    // Build URL with optional GroupId query param
+    const url = new URL(this.baseUrl);
     if (this.groupId) {
-      headers["X-GroupId"] = this.groupId;
+      url.searchParams.set("GroupId", this.groupId);
     }
 
-    const response = await fetch(this.baseUrl, {
+    const response = await fetch(url.toString(), {
       method: "POST",
       headers,
       body: JSON.stringify({
         model: this.model,
+        type: "query",
         texts: [text],
       }),
     });
@@ -211,15 +213,15 @@ class MiniMaxEmbeddings implements EmbeddingProvider {
     }
 
     const data = await response.json() as {
-      base_resp: { status_msg: string };
-      embeddings: number[][];
+      base_resp: { status_code: number; status_msg: string };
+      vectors: number[][];
     };
 
-    if (data.base_resp.status_msg !== "OK") {
+    if (data.base_resp.status_code !== 0) {
       throw new Error(`MiniMax embedding error: ${data.base_resp.status_msg}`);
     }
 
-    return data.embeddings[0];
+    return data.vectors[0];
   }
 }
 
