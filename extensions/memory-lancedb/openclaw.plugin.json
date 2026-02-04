@@ -2,16 +2,26 @@
   "id": "memory-lancedb",
   "kind": "memory",
   "uiHints": {
+    "embedding.provider": {
+      "label": "Embedding Provider",
+      "help": "Choose OpenAI or MiniMax for embeddings"
+    },
     "embedding.apiKey": {
-      "label": "OpenAI API Key",
+      "label": "API Key",
       "sensitive": true,
-      "placeholder": "sk-proj-...",
-      "help": "API key for OpenAI embeddings (or use ${OPENAI_API_KEY})"
+      "placeholder": "sk-proj-... (OpenAI) or ${MINIMAX_API_KEY}",
+      "help": "API key for embeddings"
+    },
+    "embedding.groupId": {
+      "label": "Group ID",
+      "placeholder": "${MINIMAX_GROUP_ID}",
+      "help": "MiniMax Group ID (optional for Coding Plan)",
+      "advanced": true
     },
     "embedding.model": {
       "label": "Embedding Model",
       "placeholder": "text-embedding-3-small",
-      "help": "OpenAI embedding model to use"
+      "help": "OpenAI: text-embedding-3-small/large | MiniMax: embo-01"
     },
     "dbPath": {
       "label": "Database Path",
@@ -35,12 +45,24 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["openai", "minimax"]
+          },
           "apiKey": {
+            "type": "string"
+          },
+          "groupId": {
             "type": "string"
           },
           "model": {
             "type": "string",
-            "enum": ["text-embedding-3-small", "text-embedding-3-large"]
+            "enum": [
+              "text-embedding-3-small",
+              "text-embedding-3-large",
+              "embo-01",
+              "MiniMax-Text-01"
+            ]
           }
         },
         "required": ["apiKey"]

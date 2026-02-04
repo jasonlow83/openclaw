@@ -89,6 +89,23 @@ class MemoryDB {
   async store(entry: Omit<MemoryEntry, "id" | "createdAt">): Promise<MemoryEntry> {
     await this.ensureInitialized();
 
+    // Validate input
+    if (!entry.text || entry.text.trim().length === 0) {
+      throw new Error("Memory text cannot be empty");
+    }
+
+    if (entry.importance < 0 || entry.importance > 1) {
+      throw new Error("Importance must be between 0 and 1");
+    }
+
+    if (entry.text.length < 10) {
+      throw new Error("Memory text must be at least 10 characters");
+    }
+
+    if (entry.text.length > 500) {
+      throw new Error("Memory text must not exceed 500 characters");
+    }
+
     const fullEntry: MemoryEntry = {
       ...entry,
       id: randomUUID(),
@@ -161,11 +178,23 @@ class OpenAIEmbeddings implements EmbeddingProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const response = await this.client.embeddings.create({
-      model: this.model,
-      input: text,
-    });
-    return response.data[0].embedding;
+    try {
+      const response = await this.client.embeddings.create({
+        model: this.model,
+        input: text,
+      });
+
+      if (!response.data || response.data.length === 0) {
+        throw new Error(`OpenAI embedding returned no data`);
+      }
+
+      return response.data[0].embedding;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`OpenAI embedding failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 }
 
@@ -174,6 +203,7 @@ class MiniMaxEmbeddings implements EmbeddingProvider {
   private groupId: string;
   private model: string;
   private baseUrl = "https://api.minimax.chat/v1/embeddings";
+  private readonly TIMEOUT_MS = 30000; // 30 seconds
 
   constructor(
     apiKey: string,
@@ -186,42 +216,61 @@ class MiniMaxEmbeddings implements EmbeddingProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${this.apiKey}`,
-    };
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      };
 
-    // Build URL with optional GroupId query param
-    const url = new URL(this.baseUrl);
-    if (this.groupId) {
-      url.searchParams.set("GroupId", this.groupId);
+      // Build URL with optional GroupId query param
+      const url = new URL(this.baseUrl);
+      if (this.groupId) {
+        url.searchParams.set("GroupId", this.groupId);
+      }
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.TIMEOUT_MS);
+
+      const response = await fetch(url.toString(), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: this.model,
+          type: "query",
+          texts: [text],
+        }),
+        signal: controller.signal,
+      });
+
+      // Clear timeout on successful response
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`MiniMax embedding failed (HTTP ${response.status}): ${error}`);
+      }
+
+      const data = await response.json() as {
+        base_resp: { status_code: number; status_msg: string };
+        vectors: number[][];
+      };
+
+      if (data.base_resp.status_code !== 0) {
+        throw new Error(`MiniMax embedding error: ${data.base_resp.status_msg}`);
+      }
+
+      if (!data.vectors || data.vectors.length === 0) {
+        throw new Error(`MiniMax embedding returned no vectors`);
+      }
+
+      return data.vectors[0];
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`MiniMax embedding failed: ${error.message}`);
+      }
+      throw error;
     }
-
-    const response = await fetch(url.toString(), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: this.model,
-        type: "query",
-        texts: [text],
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`MiniMax embedding failed: ${error}`);
-    }
-
-    const data = await response.json() as {
-      base_resp: { status_code: number; status_msg: string };
-      vectors: number[][];
-    };
-
-    if (data.base_resp.status_code !== 0) {
-      throw new Error(`MiniMax embedding error: ${data.base_resp.status_msg}`);
-    }
-
-    return data.vectors[0];
   }
 }
 
